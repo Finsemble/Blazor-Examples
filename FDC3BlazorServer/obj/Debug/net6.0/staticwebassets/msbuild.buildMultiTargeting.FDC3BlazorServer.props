@@ -1,0 +1,3 @@
+﻿<Project>
+  <Import Project="..\build\FDC3BlazorServer.props" />
+</Project>

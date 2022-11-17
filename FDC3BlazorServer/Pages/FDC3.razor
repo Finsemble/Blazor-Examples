@@ -1,0 +1,136 @@
+﻿@page "/"
+@using System.Reflection
+@using System.Text.Json
+@implements IDisposable
+@inject IJSRuntime JS
+
+<PageTitle>Blazor FDC3 Component</PageTitle>
+
+<h1>Blazor Server Component - FDC3</h1>
+
+<label>Context:</label>
+<br />
+<textarea @bind="contextStr"></textarea>
+<br />
+<button @onclick="Broadcast">Broadcast</button>
+<br />
+<button @onclick="GetSystemChannels">Get system channels</button>
+<br />
+<button @onclick="BroadcastOnChannel">Broadcast on current channel</button>
+<br />
+<button @onclick="GetCurrentContext">Get current context</button>
+<br />
+<button @onclick="RaiseIntent">Raise intent</button>
+<br />
+
+<label>Messages:</label>
+<br />
+<pre>@messageStr</pre>
+<br />
+
+@code {
+    private static readonly string DEFAULT_CONTEXT_STRING = @"{
+  ""type"": ""fdc3.instrument"",
+  ""name"": ""Microsoft"",
+  ""id"": {
+    ""ticker"": ""MSFT"",
+    ""RIC"": ""MSFT.OQ"",
+    ""ISIN"": ""US5949181045""
+  }
+}";
+
+    private static readonly JsonSerializerOptions SERIALIZATION_OPTIONS = new JsonSerializerOptions { WriteIndented = true };
+
+    private string contextStr = DEFAULT_CONTEXT_STRING;
+    private string messageStr = string.Empty;
+
+    private DotNetObjectReference<FDC3>? objRef;
+
+    protected override void OnInitialized()
+    {
+        messageStr += "OnInitialized called\n";
+        objRef = DotNetObjectReference.Create(this);
+        JS.InvokeVoidAsync("setDotNetHelper", objRef);
+
+        StateHasChanged();
+    }
+
+    private async void GetSystemChannels()
+    {
+        Channel[] systemChannels = await JS.InvokeAsync<Channel[]>("fdc3.getSystemChannels");
+
+        messageStr += "System Channels\n";
+        messageStr += $"{JsonSerializer.Serialize(systemChannels, SERIALIZATION_OPTIONS)}\n";
+
+        StateHasChanged();
+    }
+
+    private async void RaiseIntent()
+    {
+        messageStr += "RaiseIntent called\n";
+        InstrumentContext? context = JsonSerializer.Deserialize<InstrumentContext>(contextStr);
+        await JS.InvokeVoidAsync("fdc3.raiseIntent", "ViewChart", context);
+
+        StateHasChanged();
+    }
+
+    private async void BroadcastOnChannel()
+    {
+        messageStr += "BroadcastOnChannel called\n";
+        var currentChannel = await JS.InvokeAsync<IJSObjectReference>("fdc3.getCurrentChannel");
+        InstrumentContext? context = JsonSerializer.Deserialize<InstrumentContext>(contextStr);
+
+        await currentChannel.InvokeVoidAsync("broadcast", context);
+        StateHasChanged();
+    }
+
+    private async void GetCurrentContext()
+    {
+        messageStr += "GetCurrentContext called\n";
+        var currentChannel = await JS.InvokeAsync<IJSObjectReference>("fdc3.getCurrentChannel");
+        var context = await currentChannel.InvokeAsync<InstrumentContext>("getCurrentContext");
+
+        messageStr += $"{JsonSerializer.Serialize(context, SERIALIZATION_OPTIONS)}\n";
+
+        StateHasChanged();
+    }
+
+    private void Broadcast()
+    {
+        messageStr += "Broadcast called\n";
+        if (string.IsNullOrWhiteSpace(contextStr))
+        {
+            messageStr = "ERROR: Context cannot be null or empty string\n";
+            return;
+        }
+
+        try
+        {
+            InstrumentContext? context = JsonSerializer.Deserialize<InstrumentContext>(contextStr);
+            if (context == null)
+            {
+                messageStr += "ERROR: Context string could not be deserialized\n";
+                return;
+            }
+
+            JS.InvokeVoidAsync("fdc3.broadcast", context);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError(ex.Message);
+        }
+    }
+
+    [JSInvokable]
+    public void SetContext(InstrumentContext context)
+    {
+        messageStr += "Setting context\n";
+        contextStr = JsonSerializer.Serialize(context, SERIALIZATION_OPTIONS);
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        objRef?.Dispose();
+    }
+}
